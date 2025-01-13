@@ -44,6 +44,19 @@ if (NOT DEFINED PTEX_SHA)
         OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif ()
 
+include(CMakePackageConfigHelpers)
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/PtexConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/PtexConfig.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Ptex
+)
+
+install(EXPORT Ptex
+        FILE PtexTargets.cmake
+        NAMESPACE Ptex::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Ptex
+        EXPORT_LINK_INTERFACE_LIBRARIES)
+
 if (NOT DEFINED PTEX_VER)
     # Get the version string from a "version" file or from git
     if (EXISTS "${PROJECT_SOURCE_DIR}/version")

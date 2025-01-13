@@ -21,7 +21,9 @@ if(PTEX_BUILD_STATIC_LIBS)
     PUBLIC
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR})
+        ${CMAKE_CURRENT_SOURCE_DIR}
+        ${ZLIB_INCLUDE_DIR}
+    )
     target_link_libraries(Ptex_static
         PUBLIC Threads::Threads ZLIB::ZLIB)
     install(TARGETS Ptex_static EXPORT Ptex DESTINATION ${CMAKE_INSTALL_LIBDIR})
