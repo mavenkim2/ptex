@@ -37,6 +37,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 */
 
 #include "Ptexture.h"
+#include "../../../../rt/memory.h"
 
 PTEX_NAMESPACE_BEGIN
 

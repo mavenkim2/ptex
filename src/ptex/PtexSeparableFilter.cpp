@@ -41,6 +41,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 #include "PtexSeparableKernel.h"
 #include "PtexUtils.h"
 
+#include "../../../../rt/thread_context.h"
+// #include "../../../../rt/src/types.h"
+// #include "../../../../rt/src/memory.h"
+// #include "../../../../rt/src/thread_context.h"
+
 
 PTEX_NAMESPACE_BEGIN
 
@@ -60,7 +65,8 @@ void PtexSeparableFilter::eval(float* result, int firstChan, int nChannels,
 
     // if neighborhood is constant, just return constant value of face
     if (f.isNeighborhoodConstant()) {
-        PtexPtr<PtexFaceData> data ( _tx->getData(faceid, 0) );
+        PtexFaceData *data = _tx->getData(faceid, 0);
+        // PtexPtr<PtexFaceData> data ( _tx->getData(faceid, 0) );
         if (data) {
             char* d = (char*) data->getData() + _firstChanOffset;
             Ptex::ConvertToFloat(result, d, _dt, _nchan);
@@ -357,7 +363,9 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
     while (k.res.v() > f.res.v()) k.downresV();
 
     // get face data, and apply
-    PtexPtr<PtexFaceData> dh ( _tx->getData(faceid, k.res) );
+    rt::ScratchArena scratch;
+    PtexFaceData *dh =  _tx->getData(faceid, k.res);
+    // PtexPtr<PtexFaceData> dh ( _tx->getData(faceid, k.res) );
     if (!dh) return;
 
     if (dh->isConstant()) {
@@ -387,7 +395,8 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
                 kt.u = u % tileresu;
                 kt.uw = PtexUtils::min(uw, tileresu - kt.u);
                 kt.ku = k.ku + u - k.u;
-                PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
+                // PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
+                PtexFaceData *th = dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu);
                 if (th) {
                     if (th->isConstant())
                         kt.applyConst(result, (char*)th->getData()+_firstChanOffset, _dt, _nchan);

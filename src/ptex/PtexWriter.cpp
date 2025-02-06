@@ -75,6 +75,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 #include "PtexUtils.h"
 #include "PtexWriter.h"
 
+#include "../../../../rt/thread_context.h"
+
 PTEX_NAMESPACE_BEGIN
 
 namespace {

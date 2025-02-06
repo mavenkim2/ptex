@@ -42,6 +42,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 #include "PtexUtils.h"
 #include "PtexReader.h"
 
+#include "../../../../rt/thread_context.h"
+
 namespace {
     class TempErrorHandler : public PtexErrorHandler
     {
@@ -77,6 +79,7 @@ PtexReader::PtexReader(bool premultiply, PtexInputHandler* io, PtexErrorHandler*
       _pendingPurge(false),
       _fp(0),
       _pos(0),
+      handleCount(0),
       _pixelsize(0),
       _constdata(0),
       _metadata(0),
@@ -87,6 +90,10 @@ PtexReader::PtexReader(bool premultiply, PtexInputHandler* io, PtexErrorHandler*
       _blockReads(0)
 {
     memset(&_zstream, 0, sizeof(_zstream));
+    // for (int i = 0; i < numHandles; i++)
+    // {
+    //     memset(&fileHandleData[i]._zstream, 0, sizeof(_zstream));
+    // }
 }
 
 
@@ -136,7 +143,8 @@ void PtexReader::purge()
 
 bool PtexReader::open(const char* pathArg, Ptex::String& error)
 {
-    AutoMutex locker(readlock);
+    // AutoMutex locker(readlock);
+    RWWriteLock locker(&spinLock);
     if (!needToOpen()) return false;
 
     if (!LittleEndian()) {
@@ -145,6 +153,11 @@ bool PtexReader::open(const char* pathArg, Ptex::String& error)
     }
     _path = pathArg;
     _fp = _io->open(pathArg);
+    // for (int i = 0; i < numHandles; i++)
+    // {
+    //     fileHandleData[i].Open(_io, pathArg);
+    // }
+
     if (!_fp) {
         std::string errstr = "Can't open ptex file: ";
         errstr += pathArg; errstr += "\n"; errstr += _io->lastError();
@@ -227,9 +240,9 @@ bool PtexReader::open(const char* pathArg, Ptex::String& error)
 bool PtexReader::tryClose()
 {
     if (_fp) {
-        if (!readlock.trylock()) return false;
+        if (!spinLock.TryLock()) return false;
         closeFP();
-        readlock.unlock();
+        spinLock.EndWLock();
     }
     return true;
 }
@@ -239,6 +252,10 @@ void PtexReader::closeFP()
 {
     if (_fp) {
         _io->close(_fp);
+        // for (int i = 0; i < numHandles; i++)
+        // {
+        //     fileHandleData[i].Close();
+        // }
         _fp = 0;
     }
     inflateEnd(&_zstream);
@@ -256,6 +273,11 @@ bool PtexReader::reopenFP()
         return false;
     }
     _pos = 0;
+
+    // for (int i = 0; i < numHandles; i++)
+    // {
+    //     fileHandleData[i].Open(_io, _path.c_str());
+    // }
     Header headerval;
     ExtHeader extheaderval;
     readBlock(&headerval, HeaderSize);
@@ -369,7 +391,8 @@ PtexReader::MetaData::getEntry(int index)
         // not present, must read from file
 
         // get read lock and make sure we still need to read
-        AutoMutex locker(_reader->readlock);
+        // AutoMutex locker(_reader->readlock);
+        RWWriteLock locker(&_reader->spinLock);
         if (e->lmdData) {
             return e;
         }
@@ -389,7 +412,8 @@ PtexReader::MetaData::getEntry(int index)
 void PtexReader::readMetaData()
 {
     // get read lock and make sure we still need to read
-    AutoMutex locker(readlock);
+    // AutoMutex locker(readlock);
+    RWWriteLock locker(&spinLock);
     if (_metadata) {
         return;
     }
@@ -553,49 +577,51 @@ void PtexReader::readEditMetaData()
 }
 
 
-bool PtexReader::readBlock(void* data, int size, bool reporterror)
+bool PtexReader::readBlock(void* data, int size, bool reporterror, PtexInputHandler::Handle handle)
 {
-    assert(_fp && size >= 0);
-    if (!_fp || size < 0) return false;
-    int result = (int)_io->read(data, size, _fp);
-    if (result == size) {
-        _pos += size;
-        return true;
-    }
+        assert(_fp && size >= 0);
+        if (!_fp || size < 0) return false;
+        int result = (int)_io->read(data, size, handle ? handle : _fp);
+        if (result == size) {
+            _pos += size;
+            return true;
+        }
     if (reporterror)
         setError("PtexReader error: read failed (EOF)");
     return false;
 }
 
-
-bool PtexReader::readZipBlock(void* data, int zipsize, int unzipsize)
+bool PtexReader::readZipBlock(void* data, int zipsize, int unzipsize, PtexInputHandler::Handle handle)
 {
     if (zipsize < 0 || unzipsize < 0) return false;
-    if (!_zstream.state) {
-        inflateInit(&_zstream);
+
+    // z_stream_s &stream = handleIndex == -1 ? _zstream : fileHandleData[handleIndex]._zstream;
+    z_stream_s stream = {};
+    if (!stream.state) {
+        inflateInit(&stream);
     }
 
     void* buff = alloca(BlockSize);
-    _zstream.next_out = (Bytef*) data;
-    _zstream.avail_out = unzipsize;
+    stream.next_out = (Bytef*) data;
+    stream.avail_out = unzipsize;
 
     while (1) {
         int size = (zipsize < BlockSize) ? zipsize : BlockSize;
         zipsize -= size;
-        if (!readBlock(buff, size)) break;
-        _zstream.next_in = (Bytef*) buff;
-        _zstream.avail_in = size;
-        int zresult = inflate(&_zstream, zipsize ? Z_NO_FLUSH : Z_FINISH);
+        if (!readBlock(buff, size, true, handle)) break;
+        stream.next_in = (Bytef*) buff;
+        stream.avail_in = size;
+        int zresult = inflate(&stream, zipsize ? Z_NO_FLUSH : Z_FINISH);
         if (zresult == Z_STREAM_END) break;
         if (zresult != Z_OK) {
             setError("PtexReader error: unzip failed, file corrupt");
-            inflateReset(&_zstream);
+            inflateReset(&stream);
             return 0;
         }
     }
 
-    int total = (int)_zstream.total_out;
-    inflateReset(&_zstream);
+    int total = (int)stream.total_out;
+    inflateReset(&stream);
     return total == unzipsize;
 }
 
@@ -603,7 +629,8 @@ bool PtexReader::readZipBlock(void* data, int zipsize, int unzipsize)
 void PtexReader::readLevel(int levelid, Level*& level)
 {
     // get read lock and make sure we still need to read
-    AutoMutex locker(readlock);
+    RWWriteLock locker(&spinLock);
+    // AutoMutex locker(readlock);
     if (level) {
         return;
     }
@@ -640,17 +667,23 @@ void PtexReader::readFace(int levelid, Level* level, int faceid, Ptex::Res res)
 }
 
 
-void PtexReader::TiledFace::readTile(int tile, FaceData*& data)
+void PtexReader::TiledFace::readTile(rt::Arena *arena, int tile, FaceData*& data)
 {
-    _reader->readFaceData(_offsets[tile], _fdh[tile], _tileres, _levelid, data);
+    _reader->readFaceData(_offsets[tile], _fdh[tile], _tileres, _levelid, data, arena);
 }
 
 
 void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int levelid,
-                              FaceData*& face)
+                              FaceData*& face, rt::Arena *arena)
 {
-    AutoMutex locker(readlock);
+    // AutoMutex locker(readlock);
+    RWReadLock locker(&spinLock);
+    // int handleIndex = AtomicIncrement(&handleCount) & (numHandles - 1);
+    // AutoMutex locker2(fileHandleData[handleIndex].mutex);
+
+    auto tempHandle = _io->open(_path.c_str());
     if (face) {
+        _io->close(tempHandle);
         return;
     }
 
@@ -658,14 +691,14 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
     FaceData* newface = 0;
     size_t newMemUsed = 0;
 
-    seek(pos);
+    _io->seek(tempHandle, pos);
     switch (fdh.encoding()) {
     case enc_constant:
         {
             ConstantFace* cf = new ConstantFace(_pixelsize);
             newface = cf;
             newMemUsed = sizeof(ConstantFace) + _pixelsize;
-            readBlock(cf->data(), _pixelsize);
+            readBlock(cf->data(), _pixelsize, true, tempHandle);
             if (levelid==0 && _premultiply && _header.hasAlpha())
                 PtexUtils::multalpha(cf->data(), 1, datatype(),
                                      _header.nchannels, _header.alphachan);
@@ -674,14 +707,14 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
     case enc_tiled:
         {
             Res tileres;
-            readBlock(&tileres, sizeof(tileres));
+            readBlock(&tileres, sizeof(tileres), true, tempHandle);
             uint32_t tileheadersize;
-            readBlock(&tileheadersize, sizeof(tileheadersize));
+            readBlock(&tileheadersize, sizeof(tileheadersize), true, tempHandle);
             TiledFace* tf = new TiledFace(this, res, tileres, levelid);
             newface = tf;
             newMemUsed = tf->memUsed();
-            readZipBlock(&tf->_fdh[0], tileheadersize, FaceDataHeaderSize * tf->_ntiles);
-            computeOffsets(tell(), tf->_ntiles, &tf->_fdh[0], &tf->_offsets[0]);
+            readZipBlock(&tf->_fdh[0], tileheadersize, FaceDataHeaderSize * tf->_ntiles, tempHandle);
+            computeOffsets(tell(tempHandle), tf->_ntiles, &tf->_fdh[0], &tf->_offsets[0]);
         }
         break;
     case enc_zipped:
@@ -690,12 +723,12 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
             int uw = res.u(), vw = res.v();
             int npixels = uw * vw;
             int unpackedSize = _pixelsize * npixels;
-            PackedFace* pf = new PackedFace(res, _pixelsize, unpackedSize);
+            PackedFace* pf = arena ? new PackedFace(arena, res, _pixelsize, unpackedSize) : new PackedFace(res, _pixelsize, unpackedSize);
             newface = pf;
             newMemUsed = sizeof(PackedFace) + unpackedSize;
-            bool useNew = unpackedSize > AllocaMax;
-            char* tmp = useNew ? new char [unpackedSize] : (char*) alloca(unpackedSize);
-            readZipBlock(tmp, fdh.blocksize(), unpackedSize);
+            rt::ScratchArena scratch;
+            char *tmp = PushArrayNoZero(scratch.temp.arena, char, unpackedSize);
+            readZipBlock(tmp, fdh.blocksize(), unpackedSize, tempHandle);
             if (fdh.encoding() == enc_diffzipped)
                 PtexUtils::decodeDifference(tmp, unpackedSize, datatype());
             PtexUtils::interleave(tmp, uw * DataSize(datatype()), uw, vw,
@@ -704,13 +737,13 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
             if (levelid==0 && _premultiply && _header.hasAlpha())
                 PtexUtils::multalpha(pf->data(), npixels, datatype(),
                                      _header.nchannels, _header.alphachan);
-            if (useNew) delete [] tmp;
         }
         break;
     }
 
     if (!newface) newface = errorData();
 
+    _io->close(tempHandle);
     AtomicStore(&face, newface);
     increaseMemUsed(newMemUsed);
 }
@@ -735,6 +768,7 @@ void PtexReader::getData(int faceid, void* buffer, int stride, Res res)
     int rowlen = _pixelsize * resu;
     if (stride == 0) stride = rowlen;
 
+    rt::ScratchArena scratch;
     PtexPtr<PtexFaceData> d ( getData(faceid, res) );
     if (d->isConstant()) {
         // fill dest buffer with pixel value
@@ -754,7 +788,8 @@ void PtexReader::getData(int faceid, void* buffer, int stride, Res res)
         for (int i = 0; i < ntilesv; i++) {
             char* dsttile = dsttilerow;
             for (int j = 0; j < ntilesu; j++) {
-                PtexPtr<PtexFaceData> t ( d->getTile(tile++) );
+                PtexFaceData *t = d->getTile(scratch.temp.arena, tile++);
+                // PtexPtr<PtexFaceData> t ( d->getTile(tile++) );
                 if (t->isConstant())
                     PtexUtils::fill(t->getData(), dsttile, stride,
                                     tileures, tilevres, _pixelsize);
@@ -1024,9 +1059,10 @@ PtexReader::TiledFaceBase::reduce(PtexReader* r, Res newres, PtexUtils::ReduceFn
         // no need to keep tiling, reduce tiles into a single face
         // first, get all tiles and check if they are constant (with the same value)
         PtexFaceData** tiles = (PtexFaceData**) alloca(_ntiles * sizeof(PtexFaceData*));
+        rt::ScratchArena scratch;
         bool allConstant = true;
         for (int i = 0; i < _ntiles; i++) {
-            PtexFaceData* tile = tiles[i] = getTile(i);
+            PtexFaceData* tile = tiles[i] = getTile(scratch.temp.arena, i);
             allConstant = (allConstant && tile->isConstant() &&
                            (i == 0 || (0 == memcmp(tiles[0]->getData(), tile->getData(),
                                                    _pixelsize))));
@@ -1113,14 +1149,16 @@ void PtexReader::TiledFaceBase::getPixel(int ui, int vi, void* result)
 {
     int tileu = ui >> _tileres.ulog2;
     int tilev = vi >> _tileres.vlog2;
-    PtexPtr<PtexFaceData> tile ( getTile(tilev * _ntilesu + tileu) );
+    rt::ScratchArena scratch;
+    // PtexPtr<PtexFaceData> tile ( getTile(scratch.temp.arena, tilev * _ntilesu + tileu) );
+    PtexFaceData *tile = getTile(scratch.temp.arena, tilev * _ntilesu + tileu);
     tile->getPixel(ui - (tileu<<_tileres.ulog2),
                    vi - (tilev<<_tileres.vlog2), result);
 }
 
 
 
-PtexFaceData* PtexReader::TiledReducedFace::getTile(int tile)
+PtexFaceData* PtexReader::TiledReducedFace::getTile(rt::Arena *arena, int tile)
 {
     FaceData*& face = _tiles[tile];
     if (face) {
@@ -1139,7 +1177,7 @@ PtexFaceData* PtexReader::TiledReducedFace::getTile(int tile)
     bool allConstant = true;
     int ptile = (tile/_ntilesu) * nv * pntilesu + (tile%_ntilesu) * nu;
     for (int i = 0; i < ntilesval;) {
-        PtexFaceData* tileval = tiles[i] = _parentface->getTile(ptile);
+        PtexFaceData* tileval = tiles[i] = _parentface->getTile(arena, ptile);
         allConstant = (allConstant && tileval->isConstant() &&
                        (i==0 || (0 == memcmp(tiles[0]->getData(), tileval->getData(),
                                              _pixelsize))));

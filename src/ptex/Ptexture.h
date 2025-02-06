@@ -44,6 +44,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
 #include "PtexExports.h"
 #include "PtexInt.h"
 #include "PtexVersion.h"
+#include "../../../../rt/memory.h"
 
 #include <ostream>
 
@@ -441,7 +442,7 @@ class PtexFaceData {
     virtual Ptex::Res tileRes() = 0;
 
     /** Access a tile from the data block.  Tiles are accessed in v-major order. */
-    virtual PtexFaceData* getTile(int tile) = 0;
+    virtual PtexFaceData* getTile(rt::Arena *arena, int tile) = 0;
 };
 
 

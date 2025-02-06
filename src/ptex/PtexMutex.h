@@ -1,6 +1,8 @@
 #ifndef PtexMutex_h
 #define PtexMutex_h
 
+#include <thread>
+
 /*
 PTEX SOFTWARE
 Copyright 2014 Disney Enterprises, Inc.  All rights reserved
@@ -50,6 +52,68 @@ private:
 
 typedef AutoLock<Mutex> AutoMutex;
 typedef AutoLock<SpinLock> AutoSpin;
+
+struct RWSpinLock
+{
+    uint32_t value;
+    RWSpinLock() : value(0) {}
+    bool TryLock() 
+    {
+        bool result = AtomicCompareAndSwap(&value, 0u, 0x80000000u) != 0;
+        return result;
+    }
+    void BeginRLock() 
+    {
+        for (;;)
+        {
+            uint32_t oldValue = AtomicAdd(&value, 0u) & 0x7fffffffu;
+            if (AtomicCompareAndSwap(&value, oldValue, oldValue+1))
+            {
+                break;
+            }
+            std::this_thread::yield();
+        }
+    };
+    void EndRLock() 
+    {
+        AtomicDecrement(&value);
+    }
+    void BeginWLock() 
+    {
+        while (!AtomicCompareAndSwap(&value, 0u, 0x80000000u));
+    }
+    void EndWLock()
+    {
+        int result = AtomicCompareAndSwap(&value, 0x80000000u, 0u);
+        assert(result);
+    }
+};
+
+struct RWReadLock 
+{
+    RWSpinLock *lock;
+    RWReadLock(RWSpinLock *lock) : lock(lock)
+    {
+        lock->BeginRLock();
+    }
+    ~RWReadLock()
+    {
+        lock->EndRLock();
+    }
+};
+
+struct RWWriteLock
+{
+    RWSpinLock *lock;
+    RWWriteLock(RWSpinLock *lock) : lock(lock)
+    {
+        lock->BeginWLock();
+    }
+    ~RWWriteLock()
+    {
+        lock->EndWLock();
+    }
+};
 
 PTEX_NAMESPACE_END
 
