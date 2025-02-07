@@ -413,6 +413,7 @@ public:
     public:
         ConstantFace(int pixelsize)
             : PackedFace(0, pixelsize, pixelsize) {}
+        ConstantFace(rt::Arena *arena, int pixelsize) : PackedFace(arena, 0, pixelsize, pixelsize) {}
         virtual bool isConstant() { return true; }
         virtual void getPixel(int, int, void* result) { memcpy(result, _data, _pixelsize); }
         virtual FaceData* reduce(PtexReader*, Res newres, PtexUtils::ReduceFn, size_t& newMemUsed);
@@ -461,9 +462,11 @@ public:
         size_t baseExtraMemUsed() { return _tiles.size() * sizeof(_tiles[0]); }
 
         virtual ~TiledFaceBase() {
-            for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
-                if (*i) delete *i;
-            }
+            // _tiles.clear();
+            // assert(0);
+            // for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
+            //     if (*i) delete *i;
+            // }
         }
 
         PtexReader* _reader;

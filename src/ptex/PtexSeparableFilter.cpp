@@ -65,8 +65,7 @@ void PtexSeparableFilter::eval(float* result, int firstChan, int nChannels,
 
     // if neighborhood is constant, just return constant value of face
     if (f.isNeighborhoodConstant()) {
-        PtexFaceData *data = _tx->getData(faceid, 0);
-        // PtexPtr<PtexFaceData> data ( _tx->getData(faceid, 0) );
+        PtexPtr<PtexFaceData> data ( _tx->getData(faceid, 0) );
         if (data) {
             char* d = (char*) data->getData() + _firstChanOffset;
             Ptex::ConvertToFloat(result, d, _dt, _nchan);
@@ -364,8 +363,7 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
 
     // get face data, and apply
     rt::ScratchArena scratch;
-    PtexFaceData *dh =  _tx->getData(faceid, k.res);
-    // PtexPtr<PtexFaceData> dh ( _tx->getData(faceid, k.res) );
+    PtexPtr<PtexFaceData> dh ( _tx->getData(faceid, k.res) );
     if (!dh) return;
 
     if (dh->isConstant()) {
@@ -395,8 +393,8 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
                 kt.u = u % tileresu;
                 kt.uw = PtexUtils::min(uw, tileresu - kt.u);
                 kt.ku = k.ku + u - k.u;
-                // PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
-                PtexFaceData *th = dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu);
+                PtexPtr<PtexFaceData> th ( dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu) );
+                // PtexFaceData *th = dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu);
                 if (th) {
                     if (th->isConstant())
                         kt.applyConst(result, (char*)th->getData()+_firstChanOffset, _dt, _nchan);

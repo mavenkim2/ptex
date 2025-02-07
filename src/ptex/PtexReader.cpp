@@ -695,7 +695,7 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
     switch (fdh.encoding()) {
     case enc_constant:
         {
-            ConstantFace* cf = new ConstantFace(_pixelsize);
+            ConstantFace* cf = arena ? new ConstantFace(arena, _pixelsize) : new ConstantFace(_pixelsize);
             newface = cf;
             newMemUsed = sizeof(ConstantFace) + _pixelsize;
             readBlock(cf->data(), _pixelsize, true, tempHandle);
@@ -1189,14 +1189,14 @@ PtexFaceData* PtexReader::TiledReducedFace::getTile(rt::Arena *arena, int tile)
     size_t newMemUsed = 0;
     if (allConstant) {
         // allocate a new constant face
-        newface = new ConstantFace(_pixelsize);
+        newface = new ConstantFace(arena, _pixelsize);
         newMemUsed = sizeof(ConstantFace) + _pixelsize;
         memcpy(newface->getData(), tiles[0]->getData(), _pixelsize);
     }
     else {
         // allocate a new packed face for the tile
         int memsize = _pixelsize*_tileres.size();
-        newface = new PackedFace(_tileres, _pixelsize, memsize);
+        newface = new PackedFace(arena, _tileres, _pixelsize, memsize);
         newMemUsed = sizeof(PackedFace) + memsize;
 
         // generate reduction from parent tiles
@@ -1223,7 +1223,7 @@ PtexFaceData* PtexReader::TiledReducedFace::getTile(rt::Arena *arena, int tile)
     }
 
     if (!AtomicCompareAndSwap(&face, (FaceData*)0, newface)) {
-        delete newface;
+        // delete newface;
     }
     else {
         _reader->increaseMemUsed(newMemUsed);
