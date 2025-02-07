@@ -22,9 +22,7 @@ if(PTEX_BUILD_STATIC_LIBS)
     PUBLIC
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
-        # ${MEM_INCLUDE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}
-        ${ZLIB_INCLUDE_DIR}
     )
     target_link_libraries(Ptex_static
         PUBLIC Threads::Threads ZLIB::ZLIB thread_context)
@@ -41,7 +39,6 @@ if(PTEX_BUILD_SHARED_LIBS)
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
         PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR})
-            # ${MEM_INCLUDE_DIR}
     target_compile_definitions(Ptex_dynamic PRIVATE PTEX_EXPORTS)
     target_link_libraries(Ptex_dynamic
         PUBLIC Threads::Threads ZLIB::ZLIB thread_context)
