@@ -462,7 +462,7 @@ public:
         size_t baseExtraMemUsed() { return _tiles.size() * sizeof(_tiles[0]); }
 
         virtual ~TiledFaceBase() {
-            // _tiles.clear();
+            _tiles.clear();
             // assert(0);
             // for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
             //     if (*i) delete *i;
@@ -517,6 +517,11 @@ public:
               _parentface(parentface),
               _reducefn(reducefn)
         {
+            if (_parentface->ntilesv() == 256 && _ntilesv == 128)
+            {
+                printf("resArg: %i %i, tileresArg: %i %i\n", resArg.ulog2, resArg.vlog2, tileresArg.ulog2, tileresArg.vlog2);
+                DebugBreak();
+            }
         }
         ~TiledReducedFace()
         {
@@ -581,6 +586,13 @@ protected:
             _io->seek(_fp, pos);
             _pos = pos;
         }
+    }
+
+    void seek(PtexInputHandler::Handle handle, FilePos pos)
+    {
+        if (!_fp && !reopenFP()) return;
+        logBlockRead();
+        _io->seek(handle, pos);
     }
 
     // void seek(int handleIndex, FilePos pos)
