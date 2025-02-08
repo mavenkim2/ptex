@@ -687,20 +687,19 @@ void PtexReader::readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int leve
                               FaceData*& face, rt::Arena *arena)
 {
     auto tempHandle = _io->open(_path.c_str());
-    if (face)
-    {
-        _io->close(tempHandle);
-        return;
-    }
 
     // keep new face local until fully initialized
     FaceData* newface = 0;
     size_t newMemUsed = 0;
 
-    std::string str = "mountainb0004_geo";
-
     seek(tempHandle, pos);
     RWReadLock locker(&spinLock);
+
+    if (face)
+    {
+        _io->close(tempHandle);
+        return;
+    }
 
     switch (fdh.encoding())
     {
