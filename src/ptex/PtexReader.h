@@ -462,11 +462,11 @@ public:
         size_t baseExtraMemUsed() { return _tiles.size() * sizeof(_tiles[0]); }
 
         virtual ~TiledFaceBase() {
-            _tiles.clear();
+            // _tiles.clear();
             // assert(0);
-            // for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
-            //     if (*i) delete *i;
-            // }
+            for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
+                if (*i) delete *i;
+            }
         }
 
         PtexReader* _reader;
