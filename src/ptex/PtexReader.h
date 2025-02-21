@@ -54,6 +54,13 @@ namespace rt
 
 PTEX_NAMESPACE_BEGIN
 
+struct alignas(CACHE_LINE_SIZE) FileHandleData 
+{
+    RWSpinLock mutex;
+    PtexInputHandler::Handle handle;
+    z_stream_s stream;
+};
+
 class PtexReader : public PtexTexture {
 public:
     PtexReader(bool premultiply, PtexInputHandler* inputHandler, PtexErrorHandler* errorHandler);
@@ -336,7 +343,7 @@ public:
 	    e->index = index;
             metaDataMemUsed += sizeof(std::string) + keysize + 1 + sizeof(Entry);
             return e;
-        }
+    }
 
         PTEXAPI Entry* getEntry(int index);
 
@@ -359,7 +366,7 @@ public:
         virtual void* getData() { return _data; }
         virtual bool isTiled() { return false; }
         virtual Ptex::Res tileRes() { return 0; }
-        virtual PtexFaceData* getTile(rt::Arena *, int) { return 0; }
+        virtual PtexFaceData* getTile(int) { return 0; }
 
     protected:
         void* _data;
@@ -373,6 +380,7 @@ public:
             : _res(resArg) {}
         virtual ~FaceData() {}
         virtual void release() { }
+        virtual void clear() { }
         virtual Ptex::Res res() { return _res; }
         virtual FaceData* reduce(PtexReader*, Res newres, PtexUtils::ReduceFn, size_t& newMemUsed) = 0;
     protected:
@@ -399,7 +407,7 @@ public:
         virtual void* getData() { return _data; }
         virtual bool isTiled() { return false; }
         virtual Ptex::Res tileRes() { return _res; }
-        virtual PtexFaceData* getTile(rt::Arena *, int) { return 0; }
+        virtual PtexFaceData* getTile(int) { return 0; }
         virtual FaceData* reduce(PtexReader*, Res newres, PtexUtils::ReduceFn, size_t& newMemUsed);
 
     protected:
@@ -447,6 +455,12 @@ public:
         }
 
         virtual void release() { }
+        virtual void clear() 
+        { 
+            for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
+                if (*i) (*i)->clear();
+            }
+        }
         virtual bool isConstant() { return false; }
         virtual void getPixel(int u, int v, void* result);
         virtual void* getData() { return 0; }
@@ -462,8 +476,6 @@ public:
         size_t baseExtraMemUsed() { return _tiles.size() * sizeof(_tiles[0]); }
 
         virtual ~TiledFaceBase() {
-            // _tiles.clear();
-            // assert(0);
             for (std::vector<FaceData*>::iterator i = _tiles.begin(); i != _tiles.end(); ++i) {
                 if (*i) delete *i;
             }
@@ -490,15 +502,21 @@ public:
             _fdh.resize(_ntiles),
             _offsets.resize(_ntiles);
         }
-        virtual PtexFaceData* getTile(rt::Arena *arena, int tile)
+        virtual PtexFaceData* getTile(int tile)
         {
             FaceData*& f = _tiles[tile];
-            if (!f) readTile(arena, tile, f);
+            if (!f) readTile(tile, f);
             return f;
         }
-        void readTile(rt::Arena *arena, int tile, FaceData*& data);
+        void readTile(int tile, FaceData*& data);
         size_t memUsed() {
             return sizeof(*this) + baseExtraMemUsed() + _fdh.size() * (sizeof(_fdh[0]) + sizeof(_offsets[0]));
+        }
+        virtual void clear() 
+        {
+            _fdh.clear();
+            _offsets.clear();
+            TiledFaceBase::clear();
         }
 
     protected:
@@ -526,7 +544,7 @@ public:
         ~TiledReducedFace()
         {
         }
-        virtual PtexFaceData* getTile(rt::Arena *arena, int tile);
+        virtual PtexFaceData* getTile(int tile);
 
         size_t memUsed() { return sizeof(*this) + baseExtraMemUsed(); }
 
@@ -551,6 +569,16 @@ public:
             for (std::vector<FaceData*>::iterator i = faces.begin(); i != faces.end(); ++i) {
                 if (*i) delete *i;
             }
+        }
+         
+        void clear() 
+        {
+            fdh.clear();
+            offsets.clear();
+            for (std::vector<FaceData*>::iterator i = faces.begin(); i != faces.end(); ++i) {
+                if (*i) (*i)->clear();
+            }
+            faces.clear();
         }
 
         size_t memUsed() {
@@ -595,22 +623,10 @@ protected:
         _io->seek(handle, pos);
     }
 
-    // void seek(int handleIndex, FilePos pos)
-    // {
-    //     if (!_fp && !reopenFP()) return;
-    //     logBlockRead();
-    //     FileHandleData &fd = fileHandleData[handleIndex];
-    //     assert(fd._fp);
-    //     if (pos != fd._pos) {
-    //         _io->seek(fd._fp, pos);
-    //         fd._pos = pos;
-    //     }
-    // }
-
     void closeFP();
     bool reopenFP();
-    bool readBlock(void* data, int size, bool reportError=true, PtexInputHandler::Handle handle = 0);
-    bool readZipBlock(void* data, int zipsize, int unzipsize, PtexInputHandler::Handle handle = 0);
+    bool readBlock(void* data, int size, bool reportError=true, FileHandleData *handle = 0);
+    bool readZipBlock(void* data, int zipsize, int unzipsize, FileHandleData *handle = 0);
     Level* getLevel(int levelid)
     {
         Level*& level = _levels[levelid];
@@ -631,7 +647,7 @@ protected:
     void readConstData();
     void readLevel(int levelid, Level*& level);
     void readFace(int levelid, Level* level, int faceid, Res res);
-    void readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int levelid, FaceData*& face, rt::Arena *arena = 0);
+    void readFaceData(FilePos pos, FaceDataHeader fdh, Res res, int levelid, FaceData*& face);
     void readMetaData();
     void readMetaDataBlock(MetaData* metadata, FilePos pos, int zipsize, int memsize, size_t& metaDataMemUsed);
     void readLargeMetaDataHeaders(MetaData* metadata, FilePos pos, int zipsize, int memsize, size_t& metaDataMemUsed);
@@ -682,33 +698,30 @@ protected:
 
     uint64_t handleCount;
 
-    // static const int numHandles = 4;
-    // struct alignas(CACHE_LINE_SIZE) FileHandleData 
-    // {
-    //     Mutex mutex;
-    //     PtexInputHandler::Handle _fp;
-    //     FilePos _pos;
-    //     z_stream_s _zstream;
-    //     PtexInputHandler* _io;
+    static const int numHandles = 4;
 
-    //     void Open(PtexInputHandler *io, const char* str)
-    //     {
-    //         assert(io);
-    //         _io = io;
-    //         _pos = 0;
-    //         _fp = _io->open(str);
-    //         memset(&_zstream, 0, sizeof(_zstream));
-    //     }
-    //     void Close()
-    //     {
-    //         assert(_io);
-    //         _io->close(_fp);
-    //         _fp = 0;
-    //         inflateEnd(&_zstream);
-    //     }
-    // };
-    // FileHandleData fileHandleData[numHandles];
+    // NOTE: this is done inside of a data->mutex scope
+    void seek(FileHandleData *data, FilePos pos)
+    {
+        if (!_fp && !reopenFP()) return;
+        if (!data->handle)
+        {
+            data->handle = _io->open(_path.c_str());
+            memset(&data->stream, 0, sizeof(data->stream));
+            inflateInit(&data->stream);
+        }
+        logBlockRead();
+        _io->seek(data->handle, pos);
+    }
+    FilePos tell(FileHandleData *data)
+    {
+        return tell(data->handle);
+    }
 
+    FileHandleData fileHandleData[numHandles];
+
+    RWSpinLock arenaLock;
+    rt::Arena *arena;
     DefaultInputHandler _defaultIo;   // Default IO handler
     PtexInputHandler* _io;            // IO handler
     PtexErrorHandler* _err;           // Error handler

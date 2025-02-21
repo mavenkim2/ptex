@@ -171,9 +171,9 @@ class PtexHashMap
 
     void deleteContents()
     {
-        for (uint32_t i = 0; i < _numEntries; ++i) {
-            if (_entries[i].value) delete _entries[i].value;
-        }
+        // for (uint32_t i = 0; i < _numEntries; ++i) {
+        //     if (_entries[i].value) delete _entries[i].value;
+        // }
         delete [] _entries;
         for (size_t i = 0; i < _oldEntries.size(); ++i) {
             delete [] _oldEntries[i];

@@ -362,7 +362,6 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
     while (k.res.v() > f.res.v()) k.downresV();
 
     // get face data, and apply
-    rt::ScratchArena scratch;
     PtexPtr<PtexFaceData> dh ( _tx->getData(faceid, k.res) );
     if (!dh) return;
 
@@ -393,8 +392,7 @@ void PtexSeparableFilter::apply(PtexSeparableKernel& k, int faceid, const Ptex::
                 kt.u = u % tileresu;
                 kt.uw = PtexUtils::min(uw, tileresu - kt.u);
                 kt.ku = k.ku + u - k.u;
-                PtexPtr<PtexFaceData> th ( dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu) );
-                // PtexFaceData *th = dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu);
+                PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
                 if (th) {
                     if (th->isConstant())
                         kt.applyConst(result, (char*)th->getData()+_firstChanOffset, _dt, _nchan);

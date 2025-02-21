@@ -247,9 +247,7 @@ void PtexTriangleFilter::applyIter(PtexTriangleKernelIter& k, PtexFaceData* dh)
                 kt.u2 = PtexUtils::min(k.u2 - uOffset, tileresu);
                 kt.w1 = k.w1 - wOffset;
                 kt.w2 = k.w2 - wOffset;
-                rt::ScratchArena scratch;
-                // PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
-                PtexFaceData *th = dh->getTile(scratch.temp.arena, tilev * ntilesu + tileu);
+                PtexPtr<PtexFaceData> th ( dh->getTile(tilev * ntilesu + tileu) );
                 if (th) {
                     kt.weight = 0;
                     if (th->isConstant())

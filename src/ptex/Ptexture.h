@@ -442,7 +442,7 @@ class PtexFaceData {
     virtual Ptex::Res tileRes() = 0;
 
     /** Access a tile from the data block.  Tiles are accessed in v-major order. */
-    virtual PtexFaceData* getTile(rt::Arena *arena, int tile) = 0;
+    virtual PtexFaceData* getTile(int tile) = 0;
 };
 
 
