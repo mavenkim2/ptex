@@ -104,7 +104,8 @@ PtexReader::~PtexReader()
         if (*i) (*i)->clear();
     }
     RWWriteLock lock(&arenaLock);
-    rt::ArenaClear(arena);
+    rt::ArenaRelease(arena);
+    arena = rt::ArenaAlloc();
 }
 
 void PtexReader::prune()
@@ -112,7 +113,8 @@ void PtexReader::prune()
     if (_metadata) { delete _metadata; _metadata = 0; }
 
     arenaLock.BeginWLock();
-    rt::ArenaClear(arena);
+    rt::ArenaRelease(arena);
+    arena = rt::ArenaAlloc();
     arenaLock.EndWLock();
     for (std::vector<Level*>::iterator i = _levels.begin(); i != _levels.end(); ++i) {
         if (*i) (*i)->clear();
@@ -280,12 +282,6 @@ bool PtexReader::reopenFP()
     }
 
     assert(arena);
-    // arenaLock.BeginWLock();
-    // if (!arena)
-    // {
-    //     arena = rt::ArenaAlloc();
-    // }
-    // arenaLock.EndWLock();
 
     // we assume this is called lazily in a scope where readlock is already held
     _fp = _io->open(_path.c_str());
@@ -1315,6 +1311,7 @@ PtexFaceData *PtexReader::TiledReducedFace::getTile(int tile)
         }
     }
 
+    AtomicCompareAndSwap(&face, (FaceData*)0, newface);
     _reader->increaseMemUsed(newMemUsed);
 
     return face;
