@@ -72,7 +72,7 @@ public:
     void purge();
     void setPendingPurge() { _pendingPurge = true; }
     bool pendingPurge() const { return _pendingPurge; }
-    bool tryClose();
+    bool tryClose(int &numClosed);
     bool ok() const { return _ok; }
     bool isOpen() { return _fp; }
     void invalidate() {
@@ -616,14 +616,7 @@ protected:
         }
     }
 
-    void seek(PtexInputHandler::Handle handle, FilePos pos)
-    {
-        if (!_fp && !reopenFP()) return;
-        logBlockRead();
-        _io->seek(handle, pos);
-    }
-
-    void closeFP();
+    void closeFP(int *numClosed = 0);
     bool reopenFP();
     bool readBlock(void* data, int size, bool reportError=true, FileHandleData *handle = 0);
     bool readZipBlock(void* data, int zipsize, int unzipsize, FileHandleData *handle = 0);
@@ -703,16 +696,22 @@ protected:
     // NOTE: this is done inside of a data->mutex scope
     void seek(FileHandleData *data, FilePos pos)
     {
-        if (!_fp && !reopenFP()) return;
+        if (!_fp) 
+        {
+            RWWriteLock lock(&spinLock);
+            if(!reopenFP()) return;
+        } 
         if (!data->handle)
         {
             data->handle = _io->open(_path.c_str());
             memset(&data->stream, 0, sizeof(data->stream));
             inflateInit(&data->stream);
+            logOpen();
         }
         logBlockRead();
         _io->seek(data->handle, pos);
     }
+
     FilePos tell(FileHandleData *data)
     {
         return tell(data->handle);

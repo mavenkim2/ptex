@@ -112,15 +112,17 @@ void PtexReader::prune()
 {
     if (_metadata) { delete _metadata; _metadata = 0; }
 
-    arenaLock.BeginWLock();
-    rt::ArenaRelease(arena);
-    arena = rt::ArenaAlloc();
-    arenaLock.EndWLock();
     for (std::vector<Level*>::iterator i = _levels.begin(); i != _levels.end(); ++i) {
         if (*i) (*i)->clear();
+        *i = 0;
     }
+
     _reductions.clear();
     _memUsed = _baseMemUsed;
+
+    RWWriteLock lock(&arenaLock);
+    rt::ArenaRelease(arena);
+    arena = rt::ArenaAlloc();
 }
 
 
@@ -242,40 +244,46 @@ bool PtexReader::open(const char* pathArg, Ptex::String& error)
     return true;
 }
 
-bool PtexReader::tryClose()
+bool PtexReader::tryClose(int &numClosed)
 {
     if (_fp) {
         if (!spinLock.TryLock()) return false;
-        closeFP();
+        closeFP(&numClosed);
         spinLock.EndWLock();
     }
     return true;
 }
 
 
-void PtexReader::closeFP()
+void PtexReader::closeFP(int *numClosed)
 {
+    int n = 0;
     if (_fp) {
         _io->close(_fp);
+        n++;
         for (int i = 0; i < numHandles; i++)
         {
-            RWWriteLock lock(&fileHandleData[i].mutex);
-            if (fileHandleData[i].handle)
+            if (fileHandleData[i].mutex.TryLock())
             {
-                _io->close(fileHandleData[i].handle);
-                fileHandleData[i].handle = 0;
+                if (fileHandleData[i].handle)
+                {
+                    n++;
+                    _io->close(fileHandleData[i].handle);
+                    fileHandleData[i].handle = 0;
+                    inflateEnd(&fileHandleData[i].stream);
+                }
+                fileHandleData[i].mutex.EndWLock();
             }
-            inflateEnd(&fileHandleData[i].stream);
         }
         _fp = 0;
     }
     inflateEnd(&_zstream);
+    if (numClosed) *numClosed = n;
 }
 
 
 bool PtexReader::reopenFP()
 {
-    RWWriteLock lock(&spinLock);
     if (_fp)
     {
         return true;
@@ -594,8 +602,8 @@ void PtexReader::readEditMetaData()
 
 bool PtexReader::readBlock(void* data, int size, bool reporterror, FileHandleData *handle)
 {
-        assert(_fp && size >= 0);
-        if (!_fp || size < 0) return false;
+        assert(handle || _fp && size >= 0);
+        if (!handle && (!_fp || size < 0)) return false;
         int result = (int)_io->read(data, size, handle ? handle->handle : _fp);
         assert(result);
         if (result == size) {
@@ -899,6 +907,7 @@ PtexFaceData *PtexReader::getData(int faceid, Res res)
     {
         // no reduction - get level zero (full) res face
         Level *level   = getLevel(0);
+        assert(level);
         FaceData *face = getFace(0, level, faceid, res);
         return face;
     }
