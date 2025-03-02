@@ -245,7 +245,6 @@ void PtexReaderCache::processMru()
         pruneFiles();
     }
     if (shouldPruneData) {
-        printf("memused: %llu, %llu\n", _memUsed, _maxMem);
         pruneData();
     }
     _mruLock.unlock();
