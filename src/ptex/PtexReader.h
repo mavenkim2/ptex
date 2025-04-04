@@ -589,7 +589,6 @@ public:
     };
 
 
-protected:
     void setError(const char* error)
     {
         std::string msg = error;
